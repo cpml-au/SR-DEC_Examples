@@ -14,9 +14,12 @@ dependencies:
   - scikit-learn
   - yaml
   - pygraphviz
+  - typeguard
   - pip
   - pip:
       - git+https://github.com/cpml-au/dctkit
       - git+https://github.com/cpml-au/deap
       - git+https://github.com/cpml-au/flex
       - "ray[default]"
+      - pygmsh
+      - sympy
