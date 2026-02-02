@@ -1,11 +1,11 @@
 gp:
-  NINDIVIDUALS: 500 #2000
-  NGEN: 100
+  num_individuals: 500 #2000
+  generations: 100
   multi_island:
     num_islands: 1
     migration: { "freq": 10, "frac": 0.05 }
   crossover_prob: 0.2
-  MUTPB: 0.8
+  mut_prob: 0.8
   frac_elitist: 0
   min_: 2
   max_: 5
@@ -14,13 +14,13 @@ gp:
   penalty: { "method": "length", "reg_param": 0.1 }
   select:
     fun: tools.selection.tournament_with_elitism
-    kargs: "{'num_elitist': self.n_elitist, 'tournsize': 2, 'stochastic_tourn': { 'enabled': True, 'prob': [0.7, 0.3] }}"
+    kargs: "{'tournsize': 2, 'stochastic_tourn': { 'enabled': True, 'prob': [0.7, 0.3] }}"
   mutate:
     fun: gp.mixedMutate
     # fun: gp.mutNodeReplacement
     # fun: gp.mutInsert
     # fun: gp.mutShrink
-    kargs: "{'expr': self.toolbox.expr_mut, 'pset': self.pset, 'prob': [0.8, 0.2, 0.]}" # string is important
+    kargs: "{'expr': toolbox.expr_mut, 'pset': pset, 'prob': [0.8, 0.2, 0.]}" # string is important
     expr_mut: gp.genHalfAndHalf
     expr_mut_kargs: "{'min_': 1, 'max_': 3}"
   crossover:
@@ -28,7 +28,8 @@ gp:
     kargs: "{}"
   immigration: { "enabled": False, "freq": 10, "frac": 0.9 }
   primitives:
-    imports: { "alpine.gp.cochain_primitives": ["coch_primitives"] }
+    imports: { "flex.gp.cochain_primitives": ["coch_primitives"],
+              "flex.gp.jax_primitives": ["jax_primitives"]}
     used:
       [
         { "name": "AddF", "dimension": None, "rank": None },
@@ -63,3 +64,5 @@ gp:
         { "name": "Log", "dimension": ["0", "1", "2"], "rank": ["SC"] },
       ]
   residual_formulation: False
+  batcv_size: 1
+  plot_best: True

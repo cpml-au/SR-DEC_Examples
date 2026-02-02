@@ -9,6 +9,7 @@ import data.poisson.poisson_dataset as pd
 from dctkit.mesh import util
 from flex.gp.regressor import GPSymbolicRegressor
 from flex.gp.util import load_config_data, compile_individuals
+from flex.gp.primitives import add_primitives_to_pset_from_dict
 from dctkit import config
 import data
 import dctkit
@@ -21,11 +22,17 @@ import sys
 import yaml
 from typing import Tuple, Callable
 import numpy.typing as npt
+import os
+from functools import partial
+import ray
+from matplotlib.colors import TwoSlopeNorm
+
 
 residual_formulation = False
 
 # choose precision and whether to use GPU or CPU
 # needed for context of the plots at the end of the evolution
+os.environ["JAX_PLATFORMS"] = "cpu"
 config()
 
 noise = pd.load_noise()
@@ -73,10 +80,10 @@ def eval_MSE_sol(
     config()
 
     # create objective function and set its energy function
-    def total_energy(x, curr_y, curr_bvalues):
-        penalty = 0.5 * gamma * jnp.sum((x[bnodes] - curr_bvalues) ** 2)
-        c = C.CochainP0(S, x)
-        fk = C.CochainP0(S, curr_y)
+    def total_energy(y, curr_x, curr_bvalues):
+        penalty = 0.5 * gamma * jnp.sum((y[bnodes] - curr_bvalues) ** 2)
+        c = C.CochainP0(S, y)
+        fk = C.CochainP0(S, curr_x)
         if residual_formulation:
             total_energy = C.inner(individual(c, fk), individual(c, fk)) + penalty
         else:
@@ -92,18 +99,18 @@ def eval_MSE_sol(
     us = []
 
     # Dirichlet boundary conditions for all the samples
-    bvalues = X[:, bnodes]
+    bvalues = y[:, bnodes]
 
     # loop over dataset samples
-    for i, curr_y in enumerate(y):
+    for i, curr_x in enumerate(X):
 
         curr_bvalues = bvalues[i, :]
 
-        args = {"curr_y": curr_y, "curr_bvalues": curr_bvalues}
+        args = {"curr_x": curr_x, "curr_bvalues": curr_bvalues}
         prb.set_obj_args(args)
 
         # minimize the objective
-        x = prb.solve(
+        y_pred = prb.solve(
             x0=u_0.coeffs.flatten(), ftol_abs=1e-12, ftol_rel=1e-12, maxeval=1000
         )
 
@@ -114,10 +121,10 @@ def eval_MSE_sol(
         ):
             # check whether the energy is "admissible" (i.e. exclude
             # constant energies)
-            valid_energy = is_valid_energy(u=x, prb=prb, bnodes=bnodes)
+            valid_energy = is_valid_energy(u=y_pred, prb=prb, bnodes=bnodes)
 
             if valid_energy:
-                current_err = np.linalg.norm(x - X[i, :]) ** 2
+                current_err = np.linalg.norm(y_pred - y[i, :]) ** 2
             else:
                 current_err = math.nan
         else:
@@ -130,7 +137,7 @@ def eval_MSE_sol(
 
         MSE += current_err
 
-        us.append(x)
+        us.append(y_pred)
 
     MSE *= 1 / X.shape[0]
 
@@ -286,6 +293,8 @@ def stgp_poisson(output_path=None):
     pset.renameArguments(ARG0="u")
     pset.renameArguments(ARG1="f")
 
+    pset = add_primitives_to_pset_from_dict(pset, config_file_data["gp"]["primitives"])
+
     penalty = config_file_data["gp"]["penalty"]
     common_params = {
         "S": S,
@@ -295,45 +304,57 @@ def stgp_poisson(output_path=None):
         "u_0": u_0,
     }
 
-    # seed = ["SquareF(InnP0(InvMulP0(u, InnP0(u, fk)), delP1(dP0(u))))"]
+    # seed = ["SubF(MulF(InnP1(cobP0(u), cobP0(u)),1/2), InnP0(u,f))"]
 
     gpsr = GPSymbolicRegressor(
         pset_config=pset,
         fitness=fitness,
-        predict_func=predict,
+        predict_func=partial(predict, y=y_test),
         score_func=score,
         print_log=True,
         common_data=common_params,
         save_best_individual=True,
         save_train_fit_history=True,
         output_path=output_path,
-        batch_size=1,
         **regressor_params,
     )
-
-    # if gpsr.plot_best:
-    #     triang = tri.Triangulation(S.node_coords[:, 0], S.node_coords[:, 1], S.S[2])
-    #     gpsr.toolbox.register(
-    #         "plot_best_func",
-    #         plot_sol,
-    #         D=val_data,
-    #         S=S,
-    #         bnodes=bnodes,
-    #         gamma=gamma,
-    #         u_0=u_0,
-    #         toolbox=gpsr.toolbox,
-    #         triang=triang,
-    #     )
 
     start = time.perf_counter()
 
     gpsr.fit(X_train, y_train, X_val, y_val)
 
-    gpsr.predict(X_test)
-
     print("Best MSE on the test set: ", gpsr.score(X_test, y_test))
 
+    # PLOTS
+    if config_file_data["gp"]["plot_best"]:
+        u_pred = gpsr.predict(X_test)
+        triang = tri.Triangulation(S.node_coords[:, 0], S.node_coords[:, 1], S.S[2])
+
+        plt.figure(1, figsize=(12, 10))
+        plt.clf()
+        fig = plt.gcf()
+        _, axes = plt.subplots(y_test.shape[0], 2, num=1)
+        for i in range(0, y_test.shape[0]):
+            pltobj = axes[i, 0].tricontourf(triang, y_test[i], cmap="RdBu", levels=20)
+            axes[i, 1].tricontourf(triang, u_pred[i], cmap="RdBu", levels=20)
+            axes[i, 0].set_box_aspect(1)
+            axes[i, 1].set_box_aspect(1)
+            # set x,y labels
+            axes[i, 0].set_xlabel("x")
+            axes[i, 0].set_ylabel("y")
+            axes[i, 1].set_xlabel("x")
+            axes[i, 1].set_ylabel("y")
+
+        # set titles
+        axes[0, 0].set_title("Data")
+        axes[0, 1].set_title("Prediction")
+        plt.colorbar(pltobj, ax=axes)
+        fig.canvas.draw()
+        plt.show()
+
     print(f"Elapsed time: {round(time.perf_counter() - start, 2)}")
+
+    ray.shutdown()
 
 
 if __name__ == "__main__":
