@@ -7,15 +7,12 @@ from deap import gp, base
 from data.util import load_dataset
 import data.poisson.poisson_dataset as pd
 from dctkit.mesh import util
-from alpine.gp import gpsymbreg as gps
-from alpine.data import Dataset
+from flex.gp.regressor import GPSymbolicRegressor
+from flex.gp.util import load_config_data, compile_individuals
 from dctkit import config
 import data
 import dctkit
 import warnings
-
-import ray
-
 import numpy as np
 import jax.numpy as jnp
 import math
@@ -32,10 +29,6 @@ residual_formulation = False
 config()
 
 noise = pd.load_noise()
-
-
-def compile_individuals(toolbox, individuals_str_batch):
-    return [toolbox.compile(expr=ind) for ind in individuals_str_batch]
 
 
 def get_features_batch(
@@ -64,7 +57,8 @@ def is_valid_energy(
 
 def eval_MSE_sol(
     individual: Callable,
-    D: Dataset,
+    X: npt.NDArray,
+    y: npt.NDArray,
     S: SimplicialComplex,
     bnodes: npt.NDArray,
     gamma: float,
@@ -72,7 +66,7 @@ def eval_MSE_sol(
 ):
 
     warnings.filterwarnings("ignore")
-    num_nodes = D.X.shape[1]
+    num_nodes = X.shape[1]
 
     # need to call config again before using JAX in energy evaluations to make
     # sure that  the current worker has initialized JAX
@@ -98,10 +92,10 @@ def eval_MSE_sol(
     us = []
 
     # Dirichlet boundary conditions for all the samples
-    bvalues = D.X[:, bnodes]
+    bvalues = X[:, bnodes]
 
     # loop over dataset samples
-    for i, curr_y in enumerate(D.y):
+    for i, curr_y in enumerate(y):
 
         curr_bvalues = bvalues[i, :]
 
@@ -123,7 +117,7 @@ def eval_MSE_sol(
             valid_energy = is_valid_energy(u=x, prb=prb, bnodes=bnodes)
 
             if valid_energy:
-                current_err = np.linalg.norm(x - D.X[i, :]) ** 2
+                current_err = np.linalg.norm(x - X[i, :]) ** 2
             else:
                 current_err = math.nan
         else:
@@ -131,36 +125,35 @@ def eval_MSE_sol(
 
         if math.isnan(current_err):
             MSE = 1e5
-            us = [u_0.coeffs.flatten()] * D.X.shape[0]
+            us = [u_0.coeffs.flatten()] * X.shape[0]
             break
 
         MSE += current_err
 
         us.append(x)
 
-    MSE *= 1 / D.X.shape[0]
+    MSE *= 1 / X.shape[0]
 
     return MSE, us
 
 
-@ray.remote(num_cpus=4)
-def predict(individuals_str, toolbox, D, S, bnodes, gamma, u_0, penalty):
+def predict(individuals_str, toolbox, X, y, S, bnodes, gamma, u_0, penalty):
 
     callables = compile_individuals(toolbox, individuals_str)
 
     u = [None] * len(individuals_str)
 
     for i, ind in enumerate(callables):
-        _, u[i] = eval_MSE_sol(ind, D, S, bnodes, gamma, u_0)
+        _, u[i] = eval_MSE_sol(ind, X, y, S, bnodes, gamma, u_0)
 
     return u
 
 
-@ray.remote(num_cpus=4)
 def score(
     individuals_str,
     toolbox,
-    D: Dataset,
+    X: npt.NDArray,
+    y: npt.NDArray,
     S: SimplicialComplex,
     bnodes: npt.NDArray,
     gamma: float,
@@ -173,16 +166,16 @@ def score(
     MSE = [None] * len(individuals_str)
 
     for i, ind in enumerate(callables):
-        MSE[i], _ = eval_MSE_sol(ind, D, S, bnodes, gamma, u_0)
+        MSE[i], _ = eval_MSE_sol(ind, X, y, S, bnodes, gamma, u_0)
 
     return MSE
 
 
-@ray.remote(num_cpus=4)
 def fitness(
     individuals_str,
     toolbox,
-    D: Dataset,
+    X: npt.NDArray,
+    y: npt.NDArray,
     S: SimplicialComplex,
     bnodes: npt.NDArray,
     gamma: float,
@@ -195,12 +188,9 @@ def fitness(
 
     fitnesses = [None] * len(individuals_str)
     for i, ind in enumerate(callables):
-        MSE, _ = eval_MSE_sol(ind, D, S, bnodes, gamma, u_0)
+        MSE, _ = eval_MSE_sol(ind, X, y, S, bnodes, gamma, u_0)
 
-        fitnesses[i] = (
-            MSE
-            + penalty["reg_param"] * individ_length[i],
-        )
+        fitnesses[i] = (MSE + penalty["reg_param"] * individ_length[i],)
 
     return fitnesses
 
@@ -208,7 +198,8 @@ def fitness(
 # Plot best solution
 def plot_sol(
     ind: gp.PrimitiveTree,
-    D: Dataset,
+    X: npt.NDArray,
+    y: npt.NDArray,
     S: SimplicialComplex,
     bnodes: npt.NDArray,
     gamma: float,
@@ -219,15 +210,15 @@ def plot_sol(
 
     indfun = toolbox.compile(expr=ind)
 
-    _, u = eval_MSE_sol(indfun, D=D, S=S, bnodes=bnodes, gamma=gamma, u_0=u_0)
+    _, u = eval_MSE_sol(indfun, X=X, y=y, S=S, bnodes=bnodes, gamma=gamma, u_0=u_0)
 
     plt.figure(10, figsize=(8, 4))
     plt.clf()
     fig = plt.gcf()
-    _, axes = plt.subplots(2, D.X.shape[0], num=10)
-    for i in range(0, D.X.shape[0]):
+    _, axes = plt.subplots(2, X.shape[0], num=10)
+    for i in range(0, X.shape[0]):
         axes[0, i].tricontourf(triang, u[i], cmap="RdBu", levels=20)
-        pltobj = axes[1, i].tricontourf(triang, D.X[i], cmap="RdBu", levels=20)
+        pltobj = axes[1, i].tricontourf(triang, X[i], cmap="RdBu", levels=20)
         axes[0, i].set_box_aspect(1)
         axes[1, i].set_box_aspect(1)
     plt.colorbar(pltobj, ax=axes)
@@ -236,8 +227,10 @@ def plot_sol(
     plt.pause(0.1)
 
 
-def stgp_poisson(config_file, output_path=None):
+def stgp_poisson(output_path=None):
     global residual_formulation
+    regressor_params, config_file_data = load_config_data("poisson.yaml")
+
     # generate mesh and dataset
     mesh, _ = util.generate_square_mesh(0.08)
     S = util.build_complex_from_mesh(mesh)
@@ -269,7 +262,7 @@ def stgp_poisson(config_file, output_path=None):
     u_0_vec = np.zeros(num_nodes, dtype=dctkit.float_dtype)
     u_0 = C.CochainP0(S, u_0_vec)
 
-    residual_formulation = config_file["gp"]["residual_formulation"]
+    residual_formulation = config_file_data["gp"]["residual_formulation"]
 
     # define primitive set and add primitives and terminals
     if residual_formulation:
@@ -293,7 +286,7 @@ def stgp_poisson(config_file, output_path=None):
     pset.renameArguments(ARG0="u")
     pset.renameArguments(ARG1="f")
 
-    penalty = config_file["gp"]["penalty"]
+    penalty = config_file_data["gp"]["penalty"]
     common_params = {
         "S": S,
         "penalty": penalty,
@@ -304,65 +297,51 @@ def stgp_poisson(config_file, output_path=None):
 
     # seed = ["SquareF(InnP0(InvMulP0(u, InnP0(u, fk)), delP1(dP0(u))))"]
 
-    gpsr = gps.GPSymbolicRegressor(
-        pset=pset,
-        fitness=fitness.remote,
-        error_metric=score.remote,
-        predict_func=predict.remote,
+    gpsr = GPSymbolicRegressor(
+        pset_config=pset,
+        fitness=fitness,
+        predict_func=predict,
+        score_func=score,
         print_log=True,
         common_data=common_params,
-        config_file_data=config_file,
         save_best_individual=True,
         save_train_fit_history=True,
-        plot_best=False,
-        plot_best_individual_tree=True,
-        plot_history=False,
-        output_path="./",
+        output_path=output_path,
         batch_size=1,
+        **regressor_params,
     )
 
-    train_data = Dataset("D", X_train, y_train)
-    test_data = Dataset("D", X_test, y_test)
-    val_data = Dataset("D", X_val, y_val)
-
-    if gpsr.plot_best:
-        triang = tri.Triangulation(S.node_coords[:, 0], S.node_coords[:, 1], S.S[2])
-        gpsr.toolbox.register(
-            "plot_best_func",
-            plot_sol,
-            D=val_data,
-            S=S,
-            bnodes=bnodes,
-            gamma=gamma,
-            u_0=u_0,
-            toolbox=gpsr.toolbox,
-            triang=triang,
-        )
+    # if gpsr.plot_best:
+    #     triang = tri.Triangulation(S.node_coords[:, 0], S.node_coords[:, 1], S.S[2])
+    #     gpsr.toolbox.register(
+    #         "plot_best_func",
+    #         plot_sol,
+    #         D=val_data,
+    #         S=S,
+    #         bnodes=bnodes,
+    #         gamma=gamma,
+    #         u_0=u_0,
+    #         toolbox=gpsr.toolbox,
+    #         triang=triang,
+    #     )
 
     start = time.perf_counter()
 
-    gpsr.fit(train_data, val_data)
+    gpsr.fit(X_train, y_train, X_val, y_val)
 
-    gpsr.predict(test_data)
+    gpsr.predict(X_test)
 
-    print("Best MSE on the test set: ", gpsr.score(test_data))
+    print("Best MSE on the test set: ", gpsr.score(X_test, y_test))
 
     print(f"Elapsed time: {round(time.perf_counter() - start, 2)}")
 
 
 if __name__ == "__main__":
     n_args = len(sys.argv)
-    assert n_args > 1, "Parameters filename needed."
-    param_file = sys.argv[1]
-    print("Parameters file: ", param_file)
-    with open(param_file) as file:
-        config_file = yaml.safe_load(file)
-        print(yaml.dump(config_file))
-
     # path for output data speficified
-    if n_args >= 3:
-        output_path = sys.argv[2]
+    if n_args >= 2:
+        output_path = sys.argv[1]
     else:
         output_path = "."
 
-    stgp_poisson(config_file, output_path)
+    stgp_poisson(output_path)

@@ -1,0 +1,22 @@
+name: sr-dec
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - gmsh
+  - jax==0.5.0
+  - jaxopt
+  - numpy
+  - pygmo
+  - python==3.12
+  - python-gmsh
+  - scipy
+  - scikit-learn
+  - yaml
+  - pygraphviz
+  - pip
+  - pip:
+      - git+https://github.com/cpml-au/dctkit
+      - git+https://github.com/cpml-au/deap
+      - git+https://github.com/cpml-au/flex
+      - "ray[default]"
