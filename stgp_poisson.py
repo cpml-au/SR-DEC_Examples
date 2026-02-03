@@ -19,13 +19,11 @@ import jax.numpy as jnp
 import math
 import time
 import sys
-import yaml
-from typing import Tuple, Callable
+from typing import Callable
 import numpy.typing as npt
 import os
 from functools import partial
 import ray
-from matplotlib.colors import TwoSlopeNorm
 
 
 residual_formulation = False
