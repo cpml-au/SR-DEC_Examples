@@ -3,7 +3,7 @@ import numpy.typing as npt
 from typing import Callable, Dict, Tuple
 import jax.numpy as jnp
 from jax import grad, Array
-from deap import base, gp, tools
+from deap import gp
 from dctkit.mesh.simplex import SimplicialComplex
 from dctkit.mesh.util import generate_line_mesh, build_complex_from_mesh
 from dctkit.dec import cochain as C
@@ -14,6 +14,7 @@ from data.util import load_dataset
 from data.elastica.elastica_dataset import data_path
 from flex.gp import regressor as gps
 from flex.gp.util import load_config_data, compile_individuals
+from flex.gp.primitives import add_primitives_to_pset_from_dict
 import matplotlib.pyplot as plt
 import math
 import sys
@@ -22,12 +23,16 @@ import time
 import ray
 from scipy.linalg import block_diag
 from scipy import sparse
+from itertools import chain
+from functools import partial
+import os
 
 
 residual_formulation = False
 
 # choose precision and whether to use GPU or CPU
 #  needed for context of the plots at the end of the evolution
+os.environ["JAX_PLATFORMS"] = "cpu"
 config()
 
 NUM_NODES = 11
@@ -192,6 +197,7 @@ class Objectives:
 
 def tune_EI0(
     func: Callable,
+    toolbox,
     theta_true: npt.NDArray,
     FL2: float,
     EI0_guess: float,
@@ -239,12 +245,15 @@ def tune_EI0(
 
     x0 = np.append(theta_guess, FL2_EI0)
 
-    x = prb.solve(x0=x0, maxeval=500, ftol_abs=1e-12, ftol_rel=1e-12)
+    x = prb.solve(x0=x0, maxeval=500, ftol_abs=1e-3, ftol_rel=1e-3, verbose=True)
 
     # theta = x[:-1]
     FL2_EI0 = x[-1]
 
     EI0 = FL2 / FL2_EI0
+
+    print(EI0)
+    print(prb.last_opt_result)
 
     # if optimization failed, set negative EI0
     if not (
@@ -335,50 +344,24 @@ def eval_MSE_sol(
     return 10.0 * total_err, best_theta
 
 
-def eval_best_sols(
-    energy_func: Callable,
-    EI0: float,
-    thetas_true: npt.NDArray,
-    Fs: npt.NDArray,
-    theta_in_all: npt.NDArray,
-    S: SimplicialComplex,
-) -> npt.NDArray:
-
-    _, best_sols = eval_MSE_sol(energy_func, EI0, thetas_true, Fs, theta_in_all, S)
-    return best_sols
-
-
-def eval_MSE(
-    energy_func: Callable,
-    EI0: float,
-    thetas_true: npt.NDArray,
-    Fs: npt.NDArray,
-    theta_in_all: npt.NDArray,
-    S: SimplicialComplex,
-) -> float:
-
-    MSE, _ = eval_MSE_sol(energy_func, EI0, thetas_true, Fs, theta_in_all, S)
-
-    return MSE
-
-
 def fitness(
     individuals_str: list[str],
     toolbox,
     X,
     y,
+    theta_in_all: npt.NDArray,
     S: SimplicialComplex,
-    u_0: C.CochainP0,
-    residual_mode: bool,
     penalty: dict,
 ) -> Tuple[float,]:
 
     callables = compile_individuals(toolbox, individuals_str)
-    indlen = get_features_batch([len], individuals_str)
+    indlen = get_features_batch(individuals_str)
 
     fitnesses = [None] * len(individuals_str)
     for i, ind in enumerate(callables):
-        MSE, _ = eval_MSE_sol(ind, X, y, S, u_0, residual_mode)
+        MSE, _ = eval_MSE_sol(
+            ind, individuals_str[i].EI0, X, y, theta_in_all["train"], S
+        )
 
         # add penalty on length of the tree to promote simpler solutions
         fitnesses[i] = (MSE + penalty["reg_param"] * indlen[i],)
@@ -386,44 +369,48 @@ def fitness(
     return fitnesses
 
 
-def plot_sol(
-    ind: gp.PrimitiveTree,
-    thetas_true: npt.NDArray,
-    Fs: npt.NDArray,
-    toolbox: base.Toolbox,
-    S: SimplicialComplex,
+def predict(
+    individuals_str: list[str],
+    toolbox,
+    X,
+    y,
     theta_in_all: npt.NDArray,
-):
+    S: SimplicialComplex,
+    penalty: dict,
+) -> list:
 
-    indfun = toolbox.compile(expr=ind)
+    callables = compile_individuals(toolbox, individuals_str)
 
-    _, best_sol_all = eval_MSE_sol(
-        indfun,
-        ind.EI0,
-        indlen=0,
-        thetas_true=thetas_true,
-        Fs=Fs,
-        S=S,
-        theta_in_all=theta_in_all,
-    )
+    u = [None] * len(individuals_str)
 
-    plt.figure(1, figsize=(10, 4))
-    plt.clf()
-    dim = thetas_true.shape[0]
-    fig = plt.gcf()
-    _, axes = plt.subplots(1, dim, num=1)
-    # get the x,y coordinates LIST of the best and of the true
-    x_curr, y_curr = get_positions_from_angles((best_sol_all,))
-    x_true, y_true = get_positions_from_angles((thetas_true,))
-    for i in range(dim):
-        # plot the results
-        axes[i].plot(x_true[0][i, :], y_true[0][i, :], "r")
-        axes[i].plot(x_curr[0][i, :], y_curr[0][i, :], "b")
+    for i, ind in enumerate(callables):
+        _, u[i] = eval_MSE_sol(
+            ind, individuals_str[i].EI0, X, y, theta_in_all["test"], S
+        )
 
-    fig.canvas.draw()
-    fig.canvas.flush_events()
+    return u
 
-    plt.pause(0.1)
+
+def score(
+    individuals_str: list[str],
+    toolbox,
+    X,
+    y,
+    theta_in_all: npt.NDArray,
+    S: SimplicialComplex,
+    penalty: dict,
+) -> list:
+
+    callables = compile_individuals(toolbox, individuals_str)
+
+    MSE = [None] * len(individuals_str)
+
+    for i, ind in enumerate(callables):
+        MSE[i], _ = eval_MSE_sol(
+            ind, individuals_str[i].EI0, X, y, theta_in_all["val"], S
+        )
+
+    return MSE
 
 
 def print_EI0(best_individuals):
@@ -431,8 +418,32 @@ def print_EI0(best_individuals):
         print(f"The best individual's EI0 is: {ind.EI0}", flush=True)
 
 
-def stgp_elastica(config_file_data, output_path=None):
+def preprocess_callback_func(individuals, EI0s):
+    for ind, EI0 in zip(individuals, EI0s):
+        ind.EI0 = EI0
+
+
+def evaluate_EI0s(
+    individuals_str,
+    toolbox,
+    theta_true,
+    FL2,
+    EI0_guess,
+    theta_guess,
+    S,
+):
+    EI0s = [None] * len(individuals_str)
+
+    callables = compile_individuals(toolbox, individuals_str)
+    for i, ind in enumerate(callables):
+        EI0s[i] = tune_EI0(ind, toolbox, theta_true, FL2, EI0_guess, theta_guess, S)
+
+    return EI0s
+
+
+def stgp_elastica(output_path=None):
     global residual_formulation
+    regressor_params, config_file_data = load_config_data("elastica.yaml")
     thetas_train, thetas_val, thetas_test, Fs_train, Fs_val, Fs_test = load_dataset(
         data_path, "csv"
     )
@@ -446,7 +457,7 @@ def stgp_elastica(config_file_data, output_path=None):
 
     theta_in_all = get_angles_initial_guesses(x_all, y_all)
 
-    residual_formulation = config_file["gp"]["residual_formulation"]
+    residual_formulation = config_file_data["gp"]["residual_formulation"]
 
     if residual_formulation:
         print("Using residual formulation.")
@@ -468,79 +479,50 @@ def stgp_elastica(config_file_data, output_path=None):
     pset.renameArguments(ARG0="theta")
     pset.renameArguments(ARG1="FL2_EI0")
 
-    GPprb = gps.GPSymbolicRegressor(pset=pset, config_file_data=config_file_data)
+    pset = add_primitives_to_pset_from_dict(pset, config_file_data["gp"]["primitives"])
 
     penalty = config_file_data["gp"]["penalty"]
 
-    # GPprb.store_eval_common_params({"S": S, "penalty": penalty})
-    # param_names = ("thetas_true", "Fs", "theta_in_all")
-    # datasets = {
-    #     "train": [thetas_train, Fs_train, theta_in_all["train"]],
-    #     "val": [thetas_val, Fs_val, theta_in_all["val"]],
-    #     "test": [thetas_test, Fs_test, theta_in_all["test"]],
-    # }
-    # GPprb.store_datasets_params(param_names, datasets)
+    common_params = {"S": S, "penalty": penalty, "theta_in_all": theta_in_all}
 
-    # GPprb.register_eval_funcs(
-    #     fitness=fitness,
-    #     error_metric=eval_MSE,
-    #     eval_sol=eval_best_sols,
-    # )
+    # define preprocess function to estimate EI0
+    preprocess_func_args = {
+        "theta_true": thetas_train[0, :],
+        "FL2": Fs_train[0],
+        "EI0_guess": 1.0,
+        "theta_guess": theta_in_all["train"][0, :],
+        "S": S,
+    }
 
-    # register custom functions
-    GPprb.toolbox.register(
-        "evaluate_EI0",
-        tune_EI0,
-        FL2=Fs_train[0],
-        EI0_guess=1.0,
-        theta_guess=theta_in_all["train"][0, :],
-        theta_true=thetas_train[0, :],
-        S=GPprb.data_store["common"]["S"],
+    preprocess_args = {
+        "func": evaluate_EI0s,
+        "func_args": preprocess_func_args,
+        "callback": preprocess_callback_func,
+    }
+
+    opt_string = "SubF(MulF(1/2, InnP0(CMulP0(int_coch, St1D1(cobD0(theta))), CMulP0(int_coch, St1D1(cobD0(theta))))), InnD0(FL2_EI0, SinD0(theta)))"
+    seed = [opt_string]
+
+    gpsr = gps.GPSymbolicRegressor(
+        pset_config=pset,
+        fitness=fitness,
+        score_func=score,
+        predict_func=predict,
+        print_log=True,
+        common_data=common_params,
+        seed_str=seed,
+        save_best_individual=True,
+        save_train_fit_history=True,
+        output_path=output_path,
+        preprocess_args=preprocess_args,
+        custom_logger=print_EI0,
+        num_cpus=1,
+        **regressor_params,
     )
-
-    if GPprb.plot_best:
-        GPprb.toolbox.register(
-            "plot_best_func",
-            plot_sol,
-            thetas_true=thetas_val,
-            Fs=Fs_val,
-            toolbox=GPprb.toolbox,
-            S=S,
-            theta_in_all=theta_in_all["val"],
-        )
-
-    # opt_string = "SubF(MulF(1/2, InnP0(CMulP0(int_coch, St1D1(cobD0(theta))),
-    # CMulP0(int_coch, St1D1(cobD0(theta))))), InnD0(FL2_EI0, SinD0(theta)))"
-    # opt_individ = creator.Individual.from_string(opt_string, pset)
-    # seed = [opt_individ]
-
-    feature_extractors = [lambda ind: ind.EI0, len]
-
-    GPprb.__register_map(feature_extractors)
-
-    def evaluate_EI0s(individuals):
-        if not hasattr(individuals[0], "EI0"):
-            for ind in individuals:
-                ind.EI0 = 1.0
-
-        EI0s = GPprb.toolbox.map(GPprb.toolbox.evaluate_EI0, individuals)
-
-        for ind, EI0 in zip(individuals, EI0s):
-            ind.EI0 = EI0
 
     start = time.perf_counter()
 
-    GPprb.__run(
-        print_log=True,
-        seed=None,
-        save_train_fit_history=True,
-        save_best_individual=True,
-        save_best_test_sols=True,
-        X_test_param_name="thetas_true",
-        output_path=output_path,
-        preprocess_fun=evaluate_EI0s,
-        callback_fun=print_EI0,
-    )
+    gpsr.fit(X=thetas_train, y=Fs_train, X_val=thetas_val, y_val=Fs_val)
 
     print(f"Elapsed time: {round(time.perf_counter() - start, 2)}")
 
@@ -549,17 +531,10 @@ def stgp_elastica(config_file_data, output_path=None):
 
 if __name__ == "__main__":
     n_args = len(sys.argv)
-    assert n_args > 1, "Parameters filename needed."
-    param_file = sys.argv[1]
-    print("Parameters file: ", param_file)
-    with open(param_file) as file:
-        config_file = yaml.safe_load(file)
-        print(yaml.dump(config_file))
-
     # path for output data speficified
-    if n_args >= 3:
-        output_path = sys.argv[2]
+    if n_args >= 2:
+        output_path = sys.argv[1]
     else:
         output_path = "."
 
-    stgp_elastica(config_file, output_path)
+    stgp_elastica(output_path)

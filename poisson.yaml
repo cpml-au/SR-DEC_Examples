@@ -7,10 +7,10 @@ gp:
   crossover_prob: 0.2
   mut_prob: 0.8
   frac_elitist: 0
-  min_: 2
-  max_: 5
+  min_height: 2
+  max_height: 5
   overlapping_generation: True
-  validate: False
+  validate: True
   penalty: { "method": "length", "reg_param": 0.1 }
   select:
     fun: tools.selection.tournament_with_elitism
@@ -64,5 +64,5 @@ gp:
         { "name": "Log", "dimension": ["0", "1", "2"], "rank": ["SC"] },
       ]
   residual_formulation: False
-  batcv_size: 1
+  batch_size: 1
   plot_best: True
