@@ -24,6 +24,7 @@ import numpy.typing as npt
 import os
 from functools import partial
 import ray
+from util import get_features_batch
 
 
 residual_formulation = False
@@ -34,18 +35,6 @@ os.environ["JAX_PLATFORMS"] = "cpu"
 config()
 
 noise = pd.load_noise()
-
-
-def get_features_batch(
-    individuals_str_batch,
-    individ_feature_extractors=[len],
-):
-    features_batch = [
-        [fe(i) for i in individuals_str_batch] for fe in individ_feature_extractors
-    ]
-
-    individ_length = features_batch[0]
-    return individ_length
 
 
 def is_valid_energy(
