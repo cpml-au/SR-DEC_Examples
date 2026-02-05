@@ -1,6 +1,6 @@
 import numpy as np
 import numpy.typing as npt
-from typing import Callable, Dict, Tuple
+from typing import Callable, Tuple
 import jax.numpy as jnp
 from jax import grad, Array
 from deap import gp
@@ -10,20 +10,14 @@ from dctkit.dec import cochain as C
 from dctkit import config
 from dctkit.math.opt import optctrl as oc
 import dctkit as dt
-from data.util import load_dataset
-from data.elastica.elastica_dataset import data_path
 from flex.gp import regressor as gps
 from flex.gp.util import load_config_data, compile_individuals
 from flex.gp.primitives import add_primitives_to_pset_from_dict
 import matplotlib.pyplot as plt
 import math
 import sys
-import yaml
 import time
 import ray
-from scipy.linalg import block_diag
-from scipy import sparse
-from itertools import chain
 from functools import partial
 import os
 from util import *
@@ -361,6 +355,7 @@ def evaluate_EI0s(
 def stgp_elastica(output_path=None):
     global residual_formulation
     regressor_params, config_file_data = load_config_data("elastica.yaml")
+    data_path = os.path.join(os.getcwd(), "data/elastica")
     thetas_train, thetas_val, thetas_test, Fs_train, Fs_val, Fs_test = load_dataset(
         data_path, "csv"
     )

@@ -3,8 +3,7 @@ from dctkit.mesh.simplex import SimplicialComplex
 from dctkit.math.opt import optctrl as oc
 import matplotlib.pyplot as plt
 from matplotlib import tri
-from deap import gp, base
-from data.util import load_dataset
+from deap import gp
 import data.poisson.poisson_dataset as pd
 from dctkit.mesh import util
 from flex.gp.regressor import GPSymbolicRegressor
@@ -24,7 +23,8 @@ import numpy.typing as npt
 import os
 from functools import partial
 import ray
-from util import get_features_batch
+from util import get_features_batch, load_dataset
+from data.poisson.poisson_dataset import data_path
 
 
 residual_formulation = False
@@ -189,65 +189,20 @@ def fitness(
     return fitnesses
 
 
-# Plot best solution
-def plot_sol(
-    ind: gp.PrimitiveTree,
-    X: npt.NDArray,
-    y: npt.NDArray,
-    S: SimplicialComplex,
-    bnodes: npt.NDArray,
-    gamma: float,
-    u_0: C.CochainP0,
-    toolbox: base.Toolbox,
-    triang: tri.Triangulation,
-):
-
-    indfun = toolbox.compile(expr=ind)
-
-    _, u = eval_MSE_sol(indfun, X=X, y=y, S=S, bnodes=bnodes, gamma=gamma, u_0=u_0)
-
-    plt.figure(10, figsize=(8, 4))
-    plt.clf()
-    fig = plt.gcf()
-    _, axes = plt.subplots(2, X.shape[0], num=10)
-    for i in range(0, X.shape[0]):
-        axes[0, i].tricontourf(triang, u[i], cmap="RdBu", levels=20)
-        pltobj = axes[1, i].tricontourf(triang, X[i], cmap="RdBu", levels=20)
-        axes[0, i].set_box_aspect(1)
-        axes[1, i].set_box_aspect(1)
-    plt.colorbar(pltobj, ax=axes)
-    fig.canvas.draw()
-    fig.canvas.flush_events()
-    plt.pause(0.1)
-
-
 def stgp_poisson(output_path=None):
     global residual_formulation
     regressor_params, config_file_data = load_config_data("poisson.yaml")
 
-    # generate mesh and dataset
+    # generate mesh and get data
     mesh, _ = util.generate_square_mesh(0.08)
     S = util.build_complex_from_mesh(mesh)
     S.get_hodge_star()
     bnodes = mesh.cell_sets_dict["boundary"]["line"]
     num_nodes = S.num_nodes
 
-    np.random.seed(42)
-    data_generator_kwargs = {
-        "S": S,
-        "num_samples_per_source": 4,
-        "num_sources": 3,
-        "noise": 0.0 * np.random.rand(num_nodes),
-    }
-    data.util.save_datasets(
-        data_path="./",
-        data_generator=pd.generate_dataset,
-        data_generator_kwargs=data_generator_kwargs,
-        perc_val=0.25,
-        perc_test=0.25,
-    )
+    data_path = os.path.join(os.getcwd(), "data/poisson")
 
-    X_train, X_val, X_test, y_train, y_val, y_test = load_dataset("./", "csv")
+    X_train, X_val, X_test, y_train, y_val, y_test = load_dataset(data_path, "csv")
 
     # penalty parameter for the Dirichlet bcs
     gamma = 1000.0
