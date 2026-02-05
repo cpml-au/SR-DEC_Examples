@@ -245,23 +245,29 @@ def tune_EI0(
 
     x0 = np.append(theta_guess, FL2_EI0)
 
-    x = prb.solve(x0=x0, maxeval=500, ftol_abs=1e-3, ftol_rel=1e-3, verbose=True)
+    x = prb.solve(x0=x0, maxeval=500, ftol_abs=1e-12, ftol_rel=1e-12)
 
     # theta = x[:-1]
     FL2_EI0 = x[-1]
 
     EI0 = FL2 / FL2_EI0
 
-    print(EI0)
-    print(prb.last_opt_result)
+    # compute violation norm
+    viol = prb.constr(x, **prb.constr_args)
+    viol = np.asarray(viol)
 
-    # if optimization failed, set negative EI0
-    if not (
+    viol_norm = np.linalg.norm(viol, ord=2)
+
+    # define optimization success 1
+    success_case_1 = (
         prb.last_opt_result == 1 or prb.last_opt_result == 3 or prb.last_opt_result == 4
-    ):
-        EI0 = -1.0
+    )
+    success_case_2 = prb.last_opt_result == 5 and viol_norm <= 1e-12
 
-    return EI0
+    if success_case_1 or success_case_2:
+        return EI0
+    # in this case optimization is failed -> return a bad value
+    return -1.0
 
 
 def eval_MSE_sol(
@@ -500,17 +506,18 @@ def stgp_elastica(output_path=None):
         "callback": preprocess_callback_func,
     }
 
-    opt_string = "SubF(MulF(1/2, InnP0(CMulP0(int_coch, St1D1(cobD0(theta))), CMulP0(int_coch, St1D1(cobD0(theta))))), InnD0(FL2_EI0, SinD0(theta)))"
-    seed = [opt_string]
+    # opt_string = "SubF(MulF(1/2, InnP0(CMulP0(int_coch, St1D1(cobD0(theta))),
+    # CMulP0(int_coch, St1D1(cobD0(theta))))), InnD0(FL2_EI0, SinD0(theta)))"
+    # seed = [opt_string]
 
     gpsr = gps.GPSymbolicRegressor(
         pset_config=pset,
         fitness=fitness,
         score_func=score,
-        predict_func=predict,
+        predict_func=partial(predict, y=Fs_test),
         print_log=True,
         common_data=common_params,
-        seed_str=seed,
+        seed_str=None,
         save_best_individual=True,
         save_train_fit_history=True,
         output_path=output_path,
@@ -523,6 +530,26 @@ def stgp_elastica(output_path=None):
     start = time.perf_counter()
 
     gpsr.fit(X=thetas_train, y=Fs_train, X_val=thetas_val, y_val=Fs_val)
+
+    # -- PLOTS --
+    theta_pred_test = gpsr.predict(thetas_test)
+    # reconstruct (x,y) pred and true
+    x_pred, y_pred = get_positions_from_angles((theta_pred_test,))
+    x_true, y_true = get_positions_from_angles((thetas_test,))
+    dim = len(x_pred[0])
+
+    plt.figure(1, figsize=(12, 4))
+    _, axes = plt.subplots(1, dim, num=1)
+    for i in range(dim):
+        # plot the results
+        axes[i].scatter(x_pred[0][i], y_pred[0][i], c="r", label="Predicted")
+        axes[i].plot(x_true[0][i], y_true[0][i], c="b", label="True")
+        axes[i].grid()
+        axes[i].set_xlabel("x")
+        axes[i].set_ylabel("y")
+        axes[i].legend()
+
+    plt.show()
 
     print(f"Elapsed time: {round(time.perf_counter() - start, 2)}")
 
