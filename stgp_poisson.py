@@ -21,7 +21,7 @@ import numpy.typing as npt
 import os
 from functools import partial
 import ray
-from util import get_features_batch, load_dataset, load_noise
+from util import get_features_batch, load_dataset
 
 
 residual_formulation = False
@@ -251,6 +251,7 @@ def stgp_poisson(output_path=None):
         predict_func=partial(predict, y=y_test),
         score_func=score,
         print_log=True,
+        seed_str=None,
         common_data=common_params,
         save_best_individual=True,
         save_train_fit_history=True,
@@ -289,7 +290,7 @@ def stgp_poisson(output_path=None):
         axes[0, 1].set_title("Prediction")
         plt.colorbar(pltobj, ax=axes)
         fig.canvas.draw()
-        plt.show()
+        plt.savefig("poisson.png", dpi=300)
 
     print(f"Elapsed time: {round(time.perf_counter() - start, 2)}")
 

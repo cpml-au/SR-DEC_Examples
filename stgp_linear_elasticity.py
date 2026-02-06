@@ -319,8 +319,7 @@ def stgp_linear_elasticity(config_file, output_path=None):
     common_params = {"S": S, "penalty": penalty, "gamma": gamma, "u_0": u_0}
 
     # epsilon = "SubCD0T(symD0T(F), I)"
-    # opt_string_eps = "AddF(MulF(2., InnD0T(epsilon, epsilon)), " \
-    # "MulF(10., InnD0T(MCD0T(trD0T(epsilon), I), epsilon)))"
+    # opt_string_eps = "AddF(MulF(2., InnD0T(epsilon, epsilon)), MulF(10., InnD0T(MCD0T(trD0T(epsilon), I), epsilon)))"
     # opt_string = opt_string_eps.replace("epsilon", epsilon)
     # seed_str = [opt_string]
 
@@ -385,7 +384,7 @@ def stgp_linear_elasticity(config_file, output_path=None):
     )
 
     plt.tight_layout(rect=[0, 0, 1, 0.9])  # leave space for legend
-    plt.show()
+    plt.savefig("linear_elasticity.png", dpi=300)
     print(f"Elapsed time: {round(time.perf_counter() - start, 2)}")
 
     ray.shutdown()
