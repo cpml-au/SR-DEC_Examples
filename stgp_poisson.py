@@ -159,6 +159,7 @@ def score(
 
     for i, ind in enumerate(callables):
         MSE[i], _ = eval_MSE_sol(ind, X, y, S, bnodes, gamma, u_0)
+        MSE[i] *= -1
 
     return MSE
 
