@@ -320,6 +320,7 @@ def score(
         MSE[i], _ = eval_MSE_sol(
             ind, individuals_str[i].EI0, X, y, theta_in_all["val"], S
         )
+        MSE[i] *= -1
 
     return MSE
 
