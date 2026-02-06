@@ -9,15 +9,19 @@ exterior calculus_](https://iopscience.iop.org/article/10.1088/2632-2153/ad1af2)
 Benchmark problems:
 
 - Poisson equation
+
 <p align="center">
 <img src="figures/poisson.png" alt="My figure" width="30%">
 </p>
 
 - Euler's Elastica
+
 <p align="center">
 <img src="figures/elastica.png" alt="My figure" width="70%">
 </p>
+
 - Linear Elasticity
+
 <p align="center">
 <img src="figures/linear_elasticity.png" alt="My figure" width="70%">
 </p>

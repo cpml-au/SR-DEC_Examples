@@ -456,7 +456,7 @@ def stgp_elastica(output_path=None):
         axes[i].set_ylabel("y")
         axes[i].legend()
 
-    plt.show()
+    plt.savefig("elastica.png", dpi=300)
 
     print(f"Elapsed time: {round(time.perf_counter() - start, 2)}")
 
