@@ -43,7 +43,7 @@ $ python stgp_poisson.py poisson.yaml
 ```
 
 Check the online [documentation](https://flexgp.readthedocs.io/en/latest/?badge=latest) of
-_Flex_ for the meaning of the configuration parameters included in the .yaml file.
+_Flex_ for the meaning of the configuration parameters included in the .yaml files.
 
 ## Citing
 
