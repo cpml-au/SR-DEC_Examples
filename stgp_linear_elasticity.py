@@ -3,8 +3,6 @@ from dctkit.mesh.simplex import SimplicialComplex
 from dctkit.math.opt import optctrl as oc
 import matplotlib.pyplot as plt
 from deap import gp
-from data.util import load_dataset
-from data.linear_elasticity.linear_elasticity_dataset import data_path
 from dctkit.mesh import util
 from flex.gp import regressor as gps
 from flex.gp.util import load_config_data, compile_individuals
@@ -21,12 +19,32 @@ import yaml
 from typing import Tuple, Callable, Dict
 import numpy.typing as npt
 import pygmsh
-from util import get_features_batch, get_LE_boundary_values
+from util import get_features_batch, get_LE_boundary_values, load_dataset
+import os
+from functools import partial
 
 residual_formulation = False
 
+
+def scalar_tensor_mul(c: C.Cochain, c_T: C.Cochain) -> C.Cochain:
+    """Compute the component-wise product between a scalar-valued and a tensor-valued
+    cochain (of the same dimension and type).
+
+    Args:
+        c: a scalar-valued cochain.
+        c_T: a tensor-valued cochain.
+
+    Returns:
+        the component-wise product c*c_T.
+    """
+    return C.Cochain(
+        c_T.dim, c_T.is_primal, c_T.complex, c.coeffs[:, None] * c_T.coeffs
+    )
+
+
 # choose precision and whether to use GPU or CPU
 # needed for context of the plots at the end of the evolution
+os.environ["JAX_PLATFORMS"] = "cpu"
 config()
 
 
@@ -93,8 +111,7 @@ def eval_MSE_sol(
 
             current_err = np.linalg.norm(x_flatten - X[i, :].flatten()) ** 2
             x_reshaped = x_flatten.reshape(S.node_coords.shape)
-            curr_nodes = C.CochainP0(S, x_reshaped)
-            F = C.deformation_gradient(curr_nodes)
+            F = C.CochainD0(S, S.get_deformation_gradient(x_reshaped))
             W = jnp.stack([jnp.array([[0, jnp.e], [-jnp.e, 0]])] * num_faces)
             F_plus_W = C.CochainD0(S, F.coeffs + W)
             current_err += (func(F) - func(F_plus_W)) ** 2
@@ -142,7 +159,9 @@ def score(
     MSE = [None] * len(individuals_str)
 
     for i, ind in enumerate(callables):
+        # we aim to maximize the score, so we return the negative MSE
         MSE[i], _ = eval_MSE_sol(ind, X, y, S, gamma, u_0)
+        MSE[i] *= -1.0
 
     return MSE
 
@@ -172,6 +191,7 @@ def fitness(
 
 def stgp_linear_elasticity(config_file, output_path=None):
     global residual_formulation
+    regressor_params, config_file_data = load_config_data("linear_elasticity.yaml")
     # generate mesh
     lc = 0.2
     L = 2.0
@@ -190,6 +210,7 @@ def stgp_linear_elasticity(config_file, output_path=None):
     S.get_flat_DPD_weights()
     S.get_flat_DPP_weights()
 
+    data_path = os.path.join(os.getcwd(), "data/linear_elasticity")
     # load data
     X_train, X_val, X_test, y_train, y_val, y_test = load_dataset(data_path, "npy")
 
@@ -241,7 +262,7 @@ def stgp_linear_elasticity(config_file, output_path=None):
     # initial guess for the solution of the problem
     u_0 = C.CochainP0(S, ref_node_coords)
 
-    residual_formulation = config_file["gp"]["residual_formulation"]
+    residual_formulation = config_file_data["gp"]["residual_formulation"]
 
     # define primitive set and add primitives and terminals
     if residual_formulation:
@@ -272,43 +293,99 @@ def stgp_linear_elasticity(config_file, output_path=None):
     # rename arguments
     pset.renameArguments(ARG0="F")
 
-    penalty = config_file["gp"]["penalty"]
+    pset = add_primitives_to_pset_from_dict(pset, config_file_data["gp"]["primitives"])
+    # add scalar-tensor multiplication
+    pset.addPrimitive(
+        scalar_tensor_mul, [C.CochainP0, C.CochainP0T], C.CochainP0T, "MCP0T"
+    )
+    pset.addPrimitive(
+        scalar_tensor_mul, [C.CochainP1, C.CochainP1T], C.CochainP1T, "MCP1T"
+    )
+    pset.addPrimitive(
+        scalar_tensor_mul, [C.CochainP2, C.CochainP2T], C.CochainP2T, "MCP2T"
+    )
+    pset.addPrimitive(
+        scalar_tensor_mul, [C.CochainD0, C.CochainD0T], C.CochainD0T, "MCD0T"
+    )
+    pset.addPrimitive(
+        scalar_tensor_mul, [C.CochainD1, C.CochainD1T], C.CochainD1T, "MCD1T"
+    )
+    pset.addPrimitive(
+        scalar_tensor_mul, [C.CochainD2, C.CochainD2T], C.CochainD2T, "MCD2T"
+    )
+
+    penalty = config_file_data["gp"]["penalty"]
 
     common_params = {"S": S, "penalty": penalty, "gamma": gamma, "u_0": u_0}
 
+    # epsilon = "SubCD0T(symD0T(F), I)"
+    # opt_string_eps = "AddF(MulF(2., InnD0T(epsilon, epsilon)), " \
+    # "MulF(10., InnD0T(MCD0T(trD0T(epsilon), I), epsilon)))"
+    # opt_string = opt_string_eps.replace("epsilon", epsilon)
+    # seed_str = [opt_string]
+
     # create symbolic regression problem instance
     gpsr = gps.GPSymbolicRegressor(
-        pset=pset,
-        fitness=fitness.remote,
-        error_metric=eval_MSE.remote,
-        predict_func=eval_best_sols.remote,
-        feature_extractors=[len],
+        pset_config=pset,
+        fitness=fitness,
+        predict_func=partial(predict, y=bvalues_test),
+        score_func=score,
         print_log=True,
         common_data=common_params,
-        config_file_data=config_file,
         save_best_individual=True,
         save_train_fit_history=True,
-        plot_best=False,
-        plot_best_individual_tree=True,
-        output_path="./",
+        output_path=output_path,
+        seed_str=None,
+        **regressor_params,
     )
 
-    # datasets = {'train': [X_train, bvalues_train],
-    #             'val': [X_val, bvalues_val],
-    #             'test': [X_test, bvalues_test]}
-
-    train_data = Dataset("D", [X_train, bvalues_train], y_train)
-
     start = time.perf_counter()
-    # epsilon = "SubCD0T(symD0T(F), I)"
-    # opt_string_eps = "AddF(MulF(2., InnD0T(epsilon, epsilon)),
-    # MulF(10., InnD0T(MvD0VT(trD0T(epsilon), I), epsilon)))"
-    # opt_string = opt_string_eps.replace("epsilon", epsilon)
-    # opt_string = ""
-    # opt_individ = creator.Individual.from_string(opt_string, pset)
-    # seed = [opt_individ]
-    gpsr.fit(train_data)
 
+    gpsr.fit(X_train, bvalues_train, X_val, bvalues_val)
+
+    # PLOTS
+    predicted_curr_cords = gpsr.predict(X_test)
+    num_test_sample = len(predicted_curr_cords)
+    plt.figure(1, figsize=(22, 5))
+    fig, axes = plt.subplots(1, num_test_sample, num=1)
+    for i in range(num_test_sample):
+        axes[i].triplot(
+            S.node_coords[:, 0],
+            S.node_coords[:, 1],
+            triangles=S.S[2],
+            linewidth=2.5,
+            label="Reference configuration",
+        )
+        axes[i].triplot(
+            X_test[i, :, 0],
+            X_test[i, :, 1],
+            triangles=S.S[2],
+            linewidth=2.5,
+            label="True current nodes",
+        )
+        axes[i].triplot(
+            predicted_curr_cords[i][:, 0],
+            predicted_curr_cords[i][:, 1],
+            triangles=S.S[2],
+            linewidth=2.5,
+            linestyle="--",
+            label="Predicted current nodes",
+        )
+        axes[i].set_xlabel(r"$x$")
+        axes[i].set_ylabel(r"$y$")
+
+    handles, labels = axes[0].get_legend_handles_labels()
+
+    fig.legend(
+        handles,
+        labels,
+        loc="upper center",
+        ncol=3,
+        frameon=False,
+    )
+
+    plt.tight_layout(rect=[0, 0, 1, 0.9])  # leave space for legend
+    plt.show()
     print(f"Elapsed time: {round(time.perf_counter() - start, 2)}")
 
     ray.shutdown()
@@ -316,17 +393,10 @@ def stgp_linear_elasticity(config_file, output_path=None):
 
 if __name__ == "__main__":
     n_args = len(sys.argv)
-    assert n_args > 1, "Parameters filename needed."
-    param_file = sys.argv[1]
-    print("Parameters file: ", param_file)
-    with open(param_file) as file:
-        config_file = yaml.safe_load(file)
-        print(yaml.dump(config_file))
-
     # path for output data speficified
-    if n_args >= 3:
-        output_path = sys.argv[2]
+    if n_args >= 2:
+        output_path = sys.argv[1]
     else:
         output_path = "."
 
-    stgp_linear_elasticity(config_file, output_path)
+    stgp_linear_elasticity(output_path)

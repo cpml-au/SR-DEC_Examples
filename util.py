@@ -3,7 +3,11 @@ from scipy.linalg import block_diag
 import numpy as np
 import dctkit as dt
 from scipy import sparse
-from typing import Dict
+from typing import Dict, Callable
+import os
+from functools import partial
+from sklearn.model_selection import train_test_split
+import numpy.typing as npt
 
 
 # TODO: find a way to avoid recomputing transform (encapsulate this function
@@ -154,3 +158,28 @@ def get_features_batch(
 
     individ_length = features_batch[0]
     return individ_length
+
+
+def load_dataset(data_path: str, format: str = "csv") -> Tuple[npt.NDArray]:
+    """Load the dataset from .csv files.
+
+    Returns:
+        (np.array): training samples.
+        (np.array): validation samples.
+        (np.array): test samples.
+        (np.array): training targets.
+        (np.array): validation targets.
+        (np.array): test targets.
+
+    """
+    if format == "csv":
+        loadfunc = partial(np.loadtxt, delimiter=",", dtype=float)
+    elif format == "npy":
+        loadfunc = partial(np.load, allow_pickle=True)
+    X_train = loadfunc(os.path.join(data_path, "X_train." + format))
+    X_valid = loadfunc(os.path.join(data_path, "X_valid." + format))
+    X_test = loadfunc(os.path.join(data_path, "X_test." + format))
+    y_train = loadfunc(os.path.join(data_path, "y_train." + format))
+    y_valid = loadfunc(os.path.join(data_path, "y_valid." + format))
+    y_test = loadfunc(os.path.join(data_path, "y_test." + format))
+    return X_train, X_valid, X_test, y_train, y_valid, y_test

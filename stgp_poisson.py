@@ -4,13 +4,11 @@ from dctkit.math.opt import optctrl as oc
 import matplotlib.pyplot as plt
 from matplotlib import tri
 from deap import gp
-import data.poisson.poisson_dataset as pd
 from dctkit.mesh import util
 from flex.gp.regressor import GPSymbolicRegressor
 from flex.gp.util import load_config_data, compile_individuals
 from flex.gp.primitives import add_primitives_to_pset_from_dict
 from dctkit import config
-import data
 import dctkit
 import warnings
 import numpy as np
@@ -23,8 +21,7 @@ import numpy.typing as npt
 import os
 from functools import partial
 import ray
-from util import get_features_batch, load_dataset
-from data.poisson.poisson_dataset import data_path
+from util import get_features_batch, load_dataset, load_noise
 
 
 residual_formulation = False
@@ -34,7 +31,8 @@ residual_formulation = False
 os.environ["JAX_PLATFORMS"] = "cpu"
 config()
 
-noise = pd.load_noise()
+data_path = os.path.join(os.getcwd(), "data/poisson")
+noise = np.load(os.path.join(data_path, "noise_poisson.npy"))
 
 
 def is_valid_energy(
@@ -199,8 +197,6 @@ def stgp_poisson(output_path=None):
     S.get_hodge_star()
     bnodes = mesh.cell_sets_dict["boundary"]["line"]
     num_nodes = S.num_nodes
-
-    data_path = os.path.join(os.getcwd(), "data/poisson")
 
     X_train, X_val, X_test, y_train, y_val, y_test = load_dataset(data_path, "csv")
 
