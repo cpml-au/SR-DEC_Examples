@@ -32,23 +32,24 @@ gp:
               "flex.gp.jax_primitives": ["jax_primitives"]}
     used:
        [
-      {"name": "AddF", "dimension": None, "rank": None},
-      {"name": "SubF", "dimension": None, "rank": None},
-      {"name": "MulF", "dimension": None, "rank": None},
-      {"name": "Div", "dimension": None, "rank": None},
-      {"name": "SquareF", "dimension": None, "rank": None},
-      {"name": "SqrtF", "dimension": None, "rank": None},
-      {"name": "AddC", "dimension": ["0", "1", "2"], "rank": ["SC", "T"]},
-      {"name": "SubC", "dimension": ["0", "1", "2"], "rank": ["SC", "T"]},
-      {"name": "Square", "dimension": ["0", "1", "2"], "rank": ["SC", "T"]},
-      {"name": "Sqrt", "dimension": ["0", "1", "2"], "rank": ["SC", "T"]},
-      {"name": "tr", "dimension": ["0", "1", "2"], "rank": ["T"]},
-      {"name": "MF", "dimension": ["0", "1", "2"], "rank": ["T"]},
-      {"name": "tran", "dimension": ["0", "1", "2"], "rank": ["T"]},
-      {"name": "sym", "dimension": ["0", "1", "2"], "rank": ["T"]},
-      {"name": "St", "dimension": ["0", "1", "2"], "rank": ["T"]},
-      {"name": "Inn", "dimension": ["0", "1", "2"], "rank": ["T"]}
+      {"name": "AddF", "dimension": null, "rank": null},
+      {"name": "SubF", "dimension": null, "rank": null},
+      {"name": "MulF", "dimension": null, "rank": null},
+      {"name": "Div", "dimension": null, "rank": null},
+      {"name": "SquareF", "dimension": null, "rank": null},
+      {"name": "SqrtF", "dimension": null, "rank": null},
+      {"name": "AddC", "dimension": [!dim 0, !dim 1, !dim 2], "rank": [!rank SC, !rank T]},
+      {"name": "SubC", "dimension": [!dim 0, !dim 1, !dim 2], "rank": [!rank SC, !rank T]},
+      {"name": "Square", "dimension": [!dim 0, !dim 1, !dim 2], "rank": [!rank SC, !rank T]},
+      {"name": "Sqrt", "dimension": [!dim 0, !dim 1, !dim 2], "rank": [!rank SC, !rank T]},
+      {"name": "tr", "dimension": [!dim 0, !dim 1, !dim 2], "rank": [!rank T]},
+      {"name": "MF", "dimension": [!dim 0, !dim 1, !dim 2], "rank": [!rank T]},
+      {"name": "tran", "dimension": [!dim 0, !dim 1, !dim 2], "rank": [!rank T]},
+      {"name": "sym", "dimension": [!dim 0, !dim 1, !dim 2], "rank": [!rank T]},
+      {"name": "St", "dimension": [!dim 0, !dim 1, !dim 2], "rank": [!rank T]},
+      {"name": "Inn", "dimension": [!dim 0, !dim 1, !dim 2], "rank": [!rank T]}
     ]
   residual_formulation: False
   batch_size: 1
   plot_best: True
+  set_seed: False

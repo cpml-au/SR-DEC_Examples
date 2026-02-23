@@ -413,9 +413,14 @@ def stgp_elastica(output_path=None):
         "callback": preprocess_callback_func,
     }
 
-    # opt_string = "SubF(MulF(1/2, InnP0(CMulP0(int_coch, St1D1(cobD0(theta))),
-    # CMulP0(int_coch, St1D1(cobD0(theta))))), InnD0(FL2_EI0, SinD0(theta)))"
-    # seed = [opt_string]
+    if config_file_data["gp"]["set_seed"]:
+        opt_string = (
+            "SubF(MulF(1/2, InnP0(CMulP0(int_coch, St_oneD1(cobD0(theta))), "
+            "CMulP0(int_coch, St_oneD1(cobD0(theta))))), InnD0(FL2_EI0, SinD0(theta)))"
+        )
+        seed = [opt_string]
+    else:
+        seed = None
 
     gpsr = gps.GPSymbolicRegressor(
         pset_config=pset,
@@ -424,7 +429,7 @@ def stgp_elastica(output_path=None):
         predict_func=partial(predict, y=Fs_test),
         print_log=True,
         common_data=common_params,
-        seed_str=None,
+        seed_str=seed,
         save_best_individual=True,
         save_train_fit_history=True,
         output_path=output_path,
@@ -439,24 +444,25 @@ def stgp_elastica(output_path=None):
     gpsr.fit(X=thetas_train, y=Fs_train, X_val=thetas_val, y_val=Fs_val)
 
     # -- PLOTS --
-    theta_pred_test = gpsr.predict(thetas_test)
-    # reconstruct (x,y) pred and true
-    x_pred, y_pred = get_positions_from_angles((theta_pred_test,))
-    x_true, y_true = get_positions_from_angles((thetas_test,))
-    dim = len(x_pred[0])
+    if config_file_data["gp"]["plot_best"]:
+        theta_pred_test = gpsr.predict(thetas_test)
+        # reconstruct (x,y) pred and true
+        x_pred, y_pred = get_positions_from_angles((theta_pred_test,))
+        x_true, y_true = get_positions_from_angles((thetas_test,))
+        dim = len(x_pred[0])
 
-    plt.figure(1, figsize=(12, 4))
-    _, axes = plt.subplots(1, dim, num=1)
-    for i in range(dim):
-        # plot the results
-        axes[i].scatter(x_pred[0][i], y_pred[0][i], c="r", label="Predicted")
-        axes[i].plot(x_true[0][i], y_true[0][i], c="b", label="True")
-        axes[i].grid()
-        axes[i].set_xlabel("x")
-        axes[i].set_ylabel("y")
-        axes[i].legend()
+        plt.figure(1, figsize=(12, 4))
+        _, axes = plt.subplots(1, dim, num=1)
+        for i in range(dim):
+            # plot the results
+            axes[i].scatter(x_pred[0][i], y_pred[0][i], c="r", label="Predicted")
+            axes[i].plot(x_true[0][i], y_true[0][i], c="b", label="True")
+            axes[i].grid()
+            axes[i].set_xlabel("x")
+            axes[i].set_ylabel("y")
+            axes[i].legend()
 
-    plt.savefig("elastica.png", dpi=300)
+        plt.savefig("elastica.png", dpi=300)
 
     print(f"Elapsed time: {round(time.perf_counter() - start, 2)}")
 

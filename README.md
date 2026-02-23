@@ -1,5 +1,9 @@
 # SR-DEC Examples
 
+<p align="center">
+<img src="figures/sr_dec.png" alt="My figure" width="50%">
+</p>
+
 SR-DEC: Symbolic Regression with Discrete Exterior Calculus primitives.
 
 This repository contains the scripts to reproduce the benchmark problems discussed in the
@@ -28,10 +32,10 @@ Benchmark problems:
 
 ## Installation
 
-The dependencies are collected in `environment.yaml` and can be installed, after cloning the repository, using [`mamba`]("https://github.com/mamba-org/mamba"):
+The dependencies are collected in `environment.yml` and can be installed, after cloning the repository, using [`mamba`]("https://github.com/mamba-org/mamba"):
 
 ```bash
-$ mamba env create -f environment.yaml
+$ mamba env create -f environment.yml
 ```
 
 ## Running the benchmarks
@@ -39,7 +43,7 @@ $ mamba env create -f environment.yaml
 For each benchmark, run the corresponding main script (`stgp_` + benchmark name), for example for Poisson:
 
 ```bash
-$ python stgp_poisson.py poisson.yaml
+$ python stgp_poisson.py
 ```
 
 Check the online [documentation](https://flexgp.readthedocs.io/en/latest/?badge=latest) of
