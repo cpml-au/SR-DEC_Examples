@@ -318,10 +318,13 @@ def stgp_linear_elasticity(config_file, output_path=None):
 
     common_params = {"S": S, "penalty": penalty, "gamma": gamma, "u_0": u_0}
 
-    # epsilon = "SubCD0T(symD0T(F), I)"
-    # opt_string_eps = "AddF(MulF(2., InnD0T(epsilon, epsilon)), MulF(10., InnD0T(MCD0T(trD0T(epsilon), I), epsilon)))"
-    # opt_string = opt_string_eps.replace("epsilon", epsilon)
-    # seed_str = [opt_string]
+    if config_file_data["gp"]["set_seed"]:
+        epsilon = "SubCD0T(symD0T(F), I)"
+        opt_string_eps = "AddF(MulF(2., InnD0T(epsilon, epsilon)), MulF(10., InnD0T(MCD0T(trD0T(epsilon), I), epsilon)))"
+        opt_string = opt_string_eps.replace("epsilon", epsilon)
+        seed_str = [opt_string]
+    else:
+        seed_str = None
 
     # create symbolic regression problem instance
     gpsr = gps.GPSymbolicRegressor(
@@ -334,7 +337,7 @@ def stgp_linear_elasticity(config_file, output_path=None):
         save_best_individual=True,
         save_train_fit_history=True,
         output_path=output_path,
-        seed_str=None,
+        seed_str=seed_str,
         **regressor_params,
     )
 
@@ -343,48 +346,49 @@ def stgp_linear_elasticity(config_file, output_path=None):
     gpsr.fit(X_train, bvalues_train, X_val, bvalues_val)
 
     # PLOTS
-    predicted_curr_cords = gpsr.predict(X_test)
-    num_test_sample = len(predicted_curr_cords)
-    plt.figure(1, figsize=(22, 5))
-    fig, axes = plt.subplots(1, num_test_sample, num=1)
-    for i in range(num_test_sample):
-        axes[i].triplot(
-            S.node_coords[:, 0],
-            S.node_coords[:, 1],
-            triangles=S.S[2],
-            linewidth=2.5,
-            label="Reference configuration",
-        )
-        axes[i].triplot(
-            X_test[i, :, 0],
-            X_test[i, :, 1],
-            triangles=S.S[2],
-            linewidth=2.5,
-            label="True current nodes",
-        )
-        axes[i].triplot(
-            predicted_curr_cords[i][:, 0],
-            predicted_curr_cords[i][:, 1],
-            triangles=S.S[2],
-            linewidth=2.5,
-            linestyle="--",
-            label="Predicted current nodes",
-        )
-        axes[i].set_xlabel(r"$x$")
-        axes[i].set_ylabel(r"$y$")
+    if config_file_data["gp"]["plot_best"]:
+        predicted_curr_cords = gpsr.predict(X_test)
+        num_test_sample = len(predicted_curr_cords)
+        plt.figure(1, figsize=(22, 5))
+        fig, axes = plt.subplots(1, num_test_sample, num=1)
+        for i in range(num_test_sample):
+            axes[i].triplot(
+                S.node_coords[:, 0],
+                S.node_coords[:, 1],
+                triangles=S.S[2],
+                linewidth=2.5,
+                label="Reference configuration",
+            )
+            axes[i].triplot(
+                X_test[i, :, 0],
+                X_test[i, :, 1],
+                triangles=S.S[2],
+                linewidth=2.5,
+                label="True current nodes",
+            )
+            axes[i].triplot(
+                predicted_curr_cords[i][:, 0],
+                predicted_curr_cords[i][:, 1],
+                triangles=S.S[2],
+                linewidth=2.5,
+                linestyle="--",
+                label="Predicted current nodes",
+            )
+            axes[i].set_xlabel(r"$x$")
+            axes[i].set_ylabel(r"$y$")
 
-    handles, labels = axes[0].get_legend_handles_labels()
+        handles, labels = axes[0].get_legend_handles_labels()
 
-    fig.legend(
-        handles,
-        labels,
-        loc="upper center",
-        ncol=3,
-        frameon=False,
-    )
+        fig.legend(
+            handles,
+            labels,
+            loc="upper center",
+            ncol=3,
+            frameon=False,
+        )
 
-    plt.tight_layout(rect=[0, 0, 1, 0.9])  # leave space for legend
-    plt.savefig("linear_elasticity.png", dpi=300)
+        plt.tight_layout(rect=[0, 0, 1, 0.9])  # leave space for legend
+        plt.savefig("linear_elasticity.png", dpi=300)
     print(f"Elapsed time: {round(time.perf_counter() - start, 2)}")
 
     ray.shutdown()

@@ -243,7 +243,10 @@ def stgp_poisson(output_path=None):
         "u_0": u_0,
     }
 
-    # seed = ["SubF(MulF(InnP1(cobP0(u), cobP0(u)),1/2), InnP0(u,f))"]
+    if config_file_data["gp"]["set_seed"]:
+        seed = ["SubF(MulF(InnP1(cobP0(u), cobP0(u)),1/2), InnP0(u,f))"]
+    else:
+        seed = None
 
     gpsr = GPSymbolicRegressor(
         pset_config=pset,
@@ -251,7 +254,7 @@ def stgp_poisson(output_path=None):
         predict_func=partial(predict, y=y_test),
         score_func=score,
         print_log=True,
-        seed_str=None,
+        seed_str=seed,
         common_data=common_params,
         save_best_individual=True,
         save_train_fit_history=True,
